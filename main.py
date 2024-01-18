@@ -6,9 +6,9 @@ def write(engine, command):
     engine.stdin.flush()
 
 
-engine1 = subprocess.Popen(["./ChessEngine.exe"], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+engine1 = subprocess.Popen(["./ChessEngine"], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
                            text=True)
-engine2 = subprocess.Popen(["./ChessEngine.exe"], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+engine2 = subprocess.Popen(["./ChessEngine"], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
                            text=True)
 
 write(engine1, 'isready')
@@ -22,18 +22,11 @@ if output1 != "readyok\n" or output2 != "readyok\n":
 
 board = chess.Board()
 
-engine2 = engine1
-
 while True:
     write(engine1, f"position fen {board.fen()}")
-    write(engine1, 'go movetime 500')
+    write(engine1, 'go movetime 100')
     print("\n")
     print(board.fen())
-    print(engine1.stdout.readline())
-    print(engine1.stdout.readline())
-    print(engine1.stdout.readline())
-    print(engine1.stdout.readline())
-    print(engine1.stdout.readline())
     output = engine1.stdout.readline()
     print(output)
     if output == "problem":
@@ -47,14 +40,9 @@ while True:
         break
     print(board)
     write(engine2, f"position fen {board.fen()}")
-    write(engine2, 'go movetime 500')
+    write(engine2, 'go movetime 100')
     print("\n")
     print(board.fen())
-    print(engine2.stdout.readline())
-    print(engine2.stdout.readline())
-    print(engine2.stdout.readline())
-    print(engine2.stdout.readline())
-    print(engine2.stdout.readline())
     output = engine2.stdout.readline()
     print(output)
     if output == "problem":
