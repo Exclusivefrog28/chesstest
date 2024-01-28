@@ -1,5 +1,8 @@
+import argparse
 import subprocess
-from asyncio import sleep, create_task, run
+from asyncio import sleep, create_task, run, Semaphore
+from datetime import datetime
+from math import floor
 
 import chess
 
@@ -9,9 +12,11 @@ async def play_match(match):
         engine.stdin.write(command + '\n')
         engine.stdin.flush()
 
-    async def read(engine, command):
+    async def read(engine, command, log=None, player=None):
         while True:
             out = engine.stdout.readline()
+            if log is not None:
+                log.write(f"{player}: {out[:-1]}\n")
             # print(out)
             if out[:-1].split(" ")[0] == command:
                 return out[:-1]
@@ -24,43 +29,46 @@ async def play_match(match):
 
     moves = []
 
-    write(engine1, 'ucinewgame')
-    write(engine2, 'ucinewgame')
-    write(engine1, 'setoption name UCI_Elo value 2000')
-    write(engine2, 'setoption name UCI_Elo value 2000')
-    write(engine1, 'setoption name UCI_LimitStrength value true')
-    write(engine2, 'setoption name UCI_LimitStrength value true')
-    write(engine1, 'isready')
-    write(engine2, 'isready')
+    with open(f"logs/W-{match.player1.split('.')[0]}_B-{match.player2.split('.')[0]}_{datetime.now().strftime('%H-%M-%S')}.txt", "w") as log:
+        write(engine1, 'ucinewgame')
+        write(engine2, 'ucinewgame')
+        write(engine1, 'setoption name UCI_Elo value 2000')
+        write(engine2, 'setoption name UCI_Elo value 2000')
+        write(engine1, 'setoption name UCI_LimitStrength value true')
+        write(engine2, 'setoption name UCI_LimitStrength value true')
+        write(engine1, 'isready')
+        write(engine2, 'isready')
 
-    await read(engine1, "readyok")
-    await read(engine2, "readyok")
+        await read(engine1, "readyok", log, match.player1.split('.')[0])
+        await read(engine2, "readyok", log, match.player2.split('.')[0])
 
-    board = chess.Board()
+        board = chess.Board()
 
-    while True:
-        write(engine1, f"position startpos moves {' '.join(moves)}")
-        write(engine1, f"go movetime {match.time1}")
-        # print(board.fen())
-        await sleep(0.05)
-        output = (await read(engine1, "bestmove")).split(" ")[1]
-        moves.append(output)
-        move = chess.Move.from_uci(output)
-        board.push(move)
-        outcome = board.outcome(claim_draw=True)
-        if outcome is not None:
-            return outcome.winner
-        write(engine2, f"position startpos moves {' '.join(moves)}")
-        write(engine2, f"go movetime {match.time2}")
-        # print(board.fen())
-        await sleep(0.05)
-        output = (await read(engine2, "bestmove")).split(" ")[1]
-        moves.append(output)
-        move = chess.Move.from_uci(output)
-        board.push(move)
-        outcome = board.outcome(claim_draw=True)
-        if outcome is not None:
-            return outcome.winner
+        while True:
+            write(engine1, f"position startpos moves {' '.join(moves)}")
+            write(engine1, f"go movetime {match.time1}")
+            # print(board.fen())
+            log.write(f"Board FEN: {board.fen()}\n")
+            await sleep(0.05)
+            output = (await read(engine1, "bestmove", log, match.player1.split('.')[0])).split(" ")[1]
+            moves.append(output)
+            move = chess.Move.from_uci(output)
+            board.push(move)
+            outcome = board.outcome(claim_draw=True)
+            if outcome is not None:
+                return outcome.winner
+            write(engine2, f"position startpos moves {' '.join(moves)}")
+            write(engine2, f"go movetime {match.time2}")
+            # print(board.fen())
+            log.write(f"Board FEN: {board.fen()}\n")
+            await sleep(0.05)
+            output = (await read(engine2, "bestmove", log, match.player2.split('.')[0])).split(" ")[1]
+            moves.append(output)
+            move = chess.Move.from_uci(output)
+            board.push(move)
+            outcome = board.outcome(claim_draw=True)
+            if outcome is not None:
+                return outcome.winner
 
 
 class Match:
@@ -71,26 +79,29 @@ class Match:
         self.time2 = time2
 
 
-async def worker(match, results):
-    winner = await play_match(match)
-    if winner is None:
-        results['draw'] += 1
-    else:
-        if winner == chess.WHITE:
-            results[match.player1] += 1
+async def worker(match, results, semaphore):
+    async with semaphore:
+        winner = await play_match(match)
+        if winner is None:
+            results['draw'] += 1
+            print(results)
         else:
-            results[match.player2] += 1
+            if winner == chess.WHITE:
+                results[match.player1] += 1
+                print(results)
+            else:
+                results[match.player2] += 1
+                print(results)
 
 
-async def score_matches(player1, player2, time1, time2, n):
+async def score_matches(player1, player2, time1, time2, matches, concurrent):
     results = {player1: 0, player2: 0, 'draw': 0}
-
     tasks = []
 
-    from math import floor
-    for i in range(floor(n / 2)):
-        tasks.append(create_task(worker(Match(player1, player2, time1, time2), results)))
-        tasks.append(create_task(worker(Match(player2, player1, time2, time1), results)))
+    semaphore = Semaphore(concurrent)
+    for i in range(floor(matches / 2)):
+        tasks.append(create_task(worker(Match(player1, player2, time1, time2), results, semaphore)))
+        tasks.append(create_task(worker(Match(player2, player1, time2, time1), results, semaphore)))
 
     for task in tasks:
         await task
@@ -99,7 +110,18 @@ async def score_matches(player1, player2, time1, time2, n):
 
 
 async def main():
-    result = await score_matches('ChessEngineSoft.exe', 'fish.exe', 100, 100, 20)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('engine1_path', type=str, help='Path to the first chess engine executable')
+    parser.add_argument('engine2_path', type=str, help='Path to the second chess engine executable')
+    parser.add_argument('time_engine1', type=int, help='Time in milliseconds per move for the first engine')
+    parser.add_argument('time_engine2', type=int, help='Time in milliseconds per move for the second engine')
+    parser.add_argument('num_matches', type=int, help='Number of matches to play')
+    parser.add_argument('concurrent_matches', type=int, help='Number of matches to play in parallel at any given time')
+
+    args = parser.parse_args()
+
+    result = await score_matches(args.engine1_path, args.engine2_path, args.time_engine1, args.time_engine2,
+                                 args.num_matches, args.concurrent_matches)
     print(result)
 
 
