@@ -1,4 +1,5 @@
 import argparse
+import random
 import subprocess
 from asyncio import sleep, create_task, run, Semaphore
 from datetime import datetime
@@ -29,7 +30,7 @@ async def play_match(match):
 
     moves = []
 
-    with open(f"logs/W-{match.player1.split('.')[0]}_B-{match.player2.split('.')[0]}_{datetime.now().strftime('%H-%M-%S')}.txt", "w") as log:
+    with open(f"logs/W-{match.player1.split('.')[0]}_B-{match.player2.split('.')[0]}_{datetime.now().strftime('%H-%M-%S')}_pos{match.pos_index}", "w") as log:
         write(engine1, 'ucinewgame')
         write(engine2, 'ucinewgame')
         write(engine1, 'setoption name UCI_Elo value 2000')
@@ -42,10 +43,10 @@ async def play_match(match):
         await read(engine1, "readyok", log, match.player1.split('.')[0])
         await read(engine2, "readyok", log, match.player2.split('.')[0])
 
-        board = chess.Board()
+        board = chess.Board(fen=match.position)
 
         while True:
-            write(engine1, f"position startpos moves {' '.join(moves)}")
+            write(engine1, f"position fen {match.position} moves {' '.join(moves)}")
             write(engine1, f"go movetime {match.time1}")
             # print(board.fen())
             log.write(f"Board FEN: {board.fen()}\n")
@@ -57,7 +58,7 @@ async def play_match(match):
             outcome = board.outcome(claim_draw=True)
             if outcome is not None:
                 return outcome.winner
-            write(engine2, f"position startpos moves {' '.join(moves)}")
+            write(engine2, f"position fen {match.position} moves {' '.join(moves)}")
             write(engine2, f"go movetime {match.time2}")
             # print(board.fen())
             log.write(f"Board FEN: {board.fen()}\n")
@@ -72,11 +73,13 @@ async def play_match(match):
 
 
 class Match:
-    def __init__(self, player1, player2, time1, time2):
+    def __init__(self, player1, player2, time1, time2, pos, pos_index):
         self.player1 = player1
         self.player2 = player2
         self.time1 = time1
         self.time2 = time2
+        self.position = pos
+        self.pos_index = pos_index
 
 
 async def worker(match, results, semaphore):
@@ -99,9 +102,16 @@ async def score_matches(player1, player2, time1, time2, matches, concurrent):
     tasks = []
 
     semaphore = Semaphore(concurrent)
+
+    with open('positions.epd', 'r') as f:
+        positions = f.readlines()
+        f.close()
+
     for i in range(floor(matches / 2)):
-        tasks.append(create_task(worker(Match(player1, player2, time1, time2), results, semaphore)))
-        tasks.append(create_task(worker(Match(player2, player1, time2, time1), results, semaphore)))
+        pos_index = random.randint(0, len(positions) - 1)
+        pos = f"{positions[pos_index][:-1]} 0"
+        tasks.append(create_task(worker(Match(player1, player2, time1, time2, pos, pos_index), results, semaphore)))
+        tasks.append(create_task(worker(Match(player2, player1, time2, time1, pos, pos_index), results, semaphore)))
 
     for task in tasks:
         await task
