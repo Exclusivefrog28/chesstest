@@ -1,7 +1,7 @@
 import argparse
 import random
 import subprocess
-from asyncio import sleep, create_task, run, Semaphore
+from asyncio import sleep, create_task, run, Semaphore, get_event_loop
 from datetime import datetime
 from math import floor
 
@@ -14,14 +14,15 @@ async def play_match(match):
         engine.stdin.flush()
 
     async def read(engine, command, log=None, player=None):
+        loop = get_event_loop()
+        log.write(f"waiting for engine\n")
         while True:
-            out = engine.stdout.readline()
+            out = await loop.run_in_executor(None, engine.stdout.readline)
             if log is not None:
                 log.write(f"{player}: {out[:-1]}\n")
             # print(out)
             if out[:-1].split(" ")[0] == command:
                 return out[:-1]
-            await sleep(0.01)
 
     engine1 = subprocess.Popen([f"./{match.player1}"], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True)
@@ -30,13 +31,15 @@ async def play_match(match):
 
     moves = []
 
-    with open(f"logs/W-{match.player1.split('.')[0]}_B-{match.player2.split('.')[0]}_{datetime.now().strftime('%H-%M-%S')}_pos{match.pos_index}", "w") as log:
+    with open(
+            f"logs/W-{match.player1.split('.')[0]}_B-{match.player2.split('.')[0]}_{datetime.now().strftime('%H-%M-%S')}_pos{match.pos_index}",
+            "w") as log:
         write(engine1, 'ucinewgame')
         write(engine2, 'ucinewgame')
-        write(engine1, 'setoption name UCI_Elo value 2000')
-        write(engine2, 'setoption name UCI_Elo value 2000')
-        write(engine1, 'setoption name UCI_LimitStrength value true')
-        write(engine2, 'setoption name UCI_LimitStrength value true')
+        # write(engine1, 'setoption name UCI_Elo value 2000')
+        # write(engine2, 'setoption name UCI_Elo value 2000')
+        # write(engine1, 'setoption name UCI_LimitStrength value true')
+        # write(engine2, 'setoption name UCI_LimitStrength value true')
         write(engine1, 'isready')
         write(engine2, 'isready')
 
@@ -50,7 +53,6 @@ async def play_match(match):
             write(engine1, f"go movetime {match.time1}")
             # print(board.fen())
             log.write(f"Board FEN: {board.fen()}\n")
-            await sleep(0.05)
             output = (await read(engine1, "bestmove", log, match.player1.split('.')[0])).split(" ")[1]
             moves.append(output)
             move = chess.Move.from_uci(output)
@@ -62,7 +64,6 @@ async def play_match(match):
             write(engine2, f"go movetime {match.time2}")
             # print(board.fen())
             log.write(f"Board FEN: {board.fen()}\n")
-            await sleep(0.05)
             output = (await read(engine2, "bestmove", log, match.player2.split('.')[0])).split(" ")[1]
             moves.append(output)
             move = chess.Move.from_uci(output)
