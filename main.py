@@ -1,7 +1,7 @@
 import argparse
 import random
 import subprocess
-from asyncio import sleep, create_task, run, Semaphore, get_event_loop
+from asyncio import create_task, run, Semaphore, get_event_loop
 from datetime import datetime
 from math import floor
 
