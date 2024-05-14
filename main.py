@@ -74,7 +74,7 @@ async def play_match(match):
             if outcome is not None:
                 engine1.terminate()
                 engine2.terminate()
-                log.write("match ended\n")
+                log.write(f"match ended winner: {outcome.winner}\n")
                 await engine1.wait()
                 await engine2.wait()
                 return outcome.winner
@@ -91,7 +91,7 @@ async def play_match(match):
             if outcome is not None:
                 engine1.terminate()
                 engine2.terminate()
-                log.write("match ended\n")
+                log.write(f"match ended winner: {outcome.winner}\n")
                 await engine1.wait()
                 await engine2.wait()
                 return outcome.winner
@@ -123,7 +123,7 @@ async def worker(match, results, semaphore):
                 print(results)
 
 
-async def score_matches(player1, player2, time1, time2, matches, concurrent):
+async def score_matches(player1, player2, time1, time2, matches, concurrent, randomize=False):
     results = {player1: 0, player2: 0, 'draw': 0}
     tasks = []
 
@@ -134,8 +134,8 @@ async def score_matches(player1, player2, time1, time2, matches, concurrent):
         f.close()
 
     for i in range(floor(matches / 2)):
-        pos_index = random.randint(0, len(positions) - 1)
-        pos = f"{positions[pos_index][:-1]} 0"
+        pos_index = random.randint(0, len(positions) - 1) if randomize else 0
+        pos = f"{positions[pos_index][:-1]} 0" if randomize else 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
         tasks.append(create_task(worker(Match(player1, player2, time1, time2, pos, pos_index), results, semaphore)))
         tasks.append(create_task(worker(Match(player2, player1, time2, time1, pos, pos_index), results, semaphore)))
 
@@ -153,11 +153,12 @@ async def main():
     parser.add_argument('time_engine2', type=int, help='Time in milliseconds per move for the second engine')
     parser.add_argument('num_matches', type=int, help='Number of matches to play')
     parser.add_argument('concurrent_matches', type=int, help='Number of matches to play in parallel at any given time')
+    parser.add_argument('-r', '--random', action='store_true', help='Play from random positions')
 
     args = parser.parse_args()
 
     result = await score_matches(args.engine1_path, args.engine2_path, args.time_engine1, args.time_engine2,
-                                 args.num_matches, args.concurrent_matches)
+                                 args.num_matches, args.concurrent_matches, args.random)
     print(result)
 
 
